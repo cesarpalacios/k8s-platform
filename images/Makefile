@@ -2,6 +2,7 @@ CONTEXT?=devcdk
 
 REF=${shell git rev-parse --short HEAD}
 TAG=${CONTEXT}:dev-${REF}
+LATEST=${CONTEXT}:latest
 
 build:
 	docker buildx build \

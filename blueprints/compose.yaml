@@ -1,0 +1,16 @@
+services:
+  cdk:
+    image: devcdk
+    build:
+      context: ../images/devcdk
+    env_file: 
+      - path: ../.envrc
+        required: true
+    user: "${UID}:${GID}"
+    volumes:
+      - type: bind
+        source: .
+        target: /app
+      - type: bind
+        source: ~/.aws/credentials
+        target: /home/node/.aws/credentials

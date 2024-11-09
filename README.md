@@ -1,5 +1,44 @@
 # k8s-platform
 
+## Credentials
+
+### AWS Credentials
+Using the credentials file is also an option for this update the `~/.aws/credentials` file accordingly.
+
+The use of profiles is recommended when multiple managing multiple accounts (e.g. `--profile local`) or by setting environment variable **AWS_PROFILE**.
+
+```sh
+[default]
+aws_access_key_id = ....
+aws_secret_access_key = ....
+
+[dev]
+aws_access_key_id = ....
+aws_secret_access_key = ....
+
+[prod]
+aws_access_key_id = ....
+aws_secret_access_key = ....
+```
+
+### Direnv
+Exposing credentials from environment variables follow the twelve-factor app pattern and allows us to avoid placing them in version control systems.
+
+For that reason we can use [direnv](https://direnv.net/) to avoid defining and loading variables multiple times
+
+```sh
+# Setup example with debian and zsh
+sudo apt install direnv
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+
+# Export variables
+echo export AWS_ACCOUNT=.......... >> .envrc
+echo export AWS_REGION=........... >> .envrc
+
+# Allow them
+direnv allow .
+```
+
 ## AWS EKS Blueprints
 
 EKS Blueprints can be used to bootstrap an EKS cluster alongside the resources needed like IAM roles, VPC and subnets, etc.
@@ -34,4 +73,27 @@ docker run --rm \
     'cdk init app --language typescript && npm i @aws-quickstart/eks-blueprints'
 ```
 
-### 
+A docker compose file is also provided under `blueprints/compose.yaml`
+
+#### Examples
+
+Generic command
+
+```sh
+# in root k8s-platform path
+docker compose --project-directory blueprints run cdk <cmd>
+```
+
+Boostrapping the environment can be done with Docker Compose:
+
+```sh
+# in root k8s-platform path
+docker compose --project-directory blueprints run cdk 'cdk bootstrap aws://${AWS_ACCOUNT}/${AWS_REGION}'
+```
+
+Deploying Kubernetes cluster
+
+```sh
+docker compose --project-directory blueprints run cdk 'cdk deploy eks-blueprint'
+```
+
