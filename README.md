@@ -34,6 +34,9 @@ echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
 # Export variables
 echo export AWS_ACCOUNT=.......... >> .envrc
 echo export AWS_REGION=........... >> .envrc
+echo export AWS_PROFILE=.......... >> .envrc
+echo export UID=$(id -u) >> .envrc
+echo export GID=$(id -g) >> .envrc
 
 # Allow them
 direnv allow .
@@ -44,6 +47,7 @@ direnv allow .
 EKS Blueprints can be used to bootstrap an EKS cluster alongside the resources needed like IAM roles, VPC and subnets, etc.
 
 Reference: [Amazon EKS Blueprints Quick Start](https://aws-quickstart.github.io/cdk-eks-blueprints/getting-started/)
+CDK docs: [AWS CDK API Reference](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-construct-library.html)
 
 ### Development
 
@@ -84,7 +88,7 @@ Generic command
 docker compose --project-directory blueprints run cdk <cmd>
 ```
 
-Boostrapping the environment can be done with Docker Compose:
+[Boostrapping](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping-env.html) the environment can be done with Docker Compose:
 
 ```sh
 # in root k8s-platform path
