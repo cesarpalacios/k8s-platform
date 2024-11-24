@@ -8,6 +8,24 @@ Parameters:
     Description: VPC IPv4 CIDR block to use
     Type: String
     AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$'
+  AvailabilityZones:
+    Type: CommaDelimitedList
+    Description: Enter two availability zones where worker nodes will live
+  SubnetsCIDR:
+    Type: CommaDelimitedList
+    Description: Enter two non-overlapping CIDR blocks that belong to VpcCIDR
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$'
+    ConstraintDescription: Must be a valid CIDR block in the format x.x.x.x/x
+  PublicSubnetsCIDR:
+    Type: CommaDelimitedList
+    Description: Enter two non-overlapping CIDR blocks that belong to VpcCIDR for public access
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$'
+    ConstraintDescription: Must be a valid CIDR block in the format x.x.x.x/x
+  Role:
+    Type: String
+    Description: Enter the name of an existing IAM Role for the clusters to use
+    AllowedPattern: "^[a-zA-Z0-9+=,.@_/-]+$"
+    ConstraintDescription: Must be a valid IAM Role name.
 
 Resources:
   # Networking
@@ -21,6 +39,210 @@ Resources:
         - Key: Name
           Value: platform-vpc
 
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: platform-ig
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  ## Subnets
+  SubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Ref SubnetsCIDR]
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones] 
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ""
+            -  - "platform-private-subnet-"
+               - !Select [ 0, !Ref AvailabilityZones ]
+
+  SubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Ref SubnetsCIDR]
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones] 
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ""
+            -  - "platform-private-subnet-"
+               - !Select [ 1, !Ref AvailabilityZones ]
+
+  PublicSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Ref PublicSubnetsCIDR]
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones] 
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ""
+            -  - "platform-public-subnet-"
+               - !Select [ 0, !Ref AvailabilityZones ]
+
+  PublicSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Ref PublicSubnetsCIDR]
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones] 
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ""
+            -  - "platform-public-subnet-"
+               - !Select [ 1, !Ref AvailabilityZones ]
+
+  # NAT Gateway and routes
+  NatGatewayOneEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGatewayTwoEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGatewayOne:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayOneEIP.AllocationId
+      SubnetId: !Ref PublicSubnetOne
+
+  NatGatewayTwo:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayTwoEIP.AllocationId
+      SubnetId: !Ref PublicSubnetTwo
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: platform-public-route-table
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetOne
+
+  PublicSubnetTwoRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetTwo
+
+  PrivateRouteTableOne:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ""
+            -  - "platform-private-nat-table-"
+               - !Select [ 0, !Ref AvailabilityZones ]
+
+  PrivateRouteTableTwo:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ""
+            -  - "platform-private-nat-table-"
+               - !Select [ 1, !Ref AvailabilityZones ]
+
+  DefaultPrivateRouteOne:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableOne
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayOne
+
+  DefaultPrivateRouteTwo:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableTwo
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayTwo
+
+  PrivateSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableOne
+      SubnetId: !Ref SubnetOne
+
+  PrivateSubnetTwoRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableTwo
+      SubnetId: !Ref SubnetTwo
+
+  # Load Balancing
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP, HTTPS, and custom HTTP traffic
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: "Name"
+          Value: "platform-pubic-access"
+   
+  AppLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: public-platform-app-lb
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PublicSubnetOne
+        - !Ref PublicSubnetTwo
+      Type: application
+      SecurityGroups:
+        - !GetAtt PublicSecurityGroup.GroupId
+
   # Env variable replaced by the upload.sh render command
   ClusterShared:
     Type: AWS::CloudFormation::Stack
@@ -28,3 +250,8 @@ Resources:
       TemplateURL: https://s3.amazonaws.com/platform-infrastructure-on-aws-cf-${OWNER}/clusters/ecs-shared-cluster-cf.yaml
       Parameters:
         ClusterName: shared-cluster
+        VpcId: !Ref VPC
+        SubnetIds: !Join
+          - ','
+          - - !Ref SubnetOne
+            - !Ref SubnetTwo

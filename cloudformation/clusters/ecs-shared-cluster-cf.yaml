@@ -6,6 +6,12 @@ Parameters:
   ClusterName:
     Description: ECS cluster name
     Type: String
+  VpcId:
+    Description: VPC id where cluster networking resources will live
+    Type: String
+  SubnetIds:
+    Description: Available Subnets Ids where cluster networking resources will live
+    Type: CommaDelimitedList
 
 Resources:
   ECSCluster:
