@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Deploys the infrastructure to support the platform clusters.
+  Nested stacks are used to create clusters
+  
+Parameters:
+  VpcCIDR:
+    Description: VPC IPv4 CIDR block to use
+    Type: String
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$'
+
+Resources:
+  # Networking
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: platform-vpc
+
+  # Env variable replaced by the upload.sh render command
+  ClusterShared:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/platform-infrastructure-on-aws-cf-${OWNER}/clusters/ecs-shared-cluster-cf.yaml
+      Parameters:
+        ClusterName: shared-cluster
