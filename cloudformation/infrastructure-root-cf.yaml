@@ -243,6 +243,35 @@ Resources:
       SecurityGroups:
         - !GetAtt PublicSecurityGroup.GroupId
 
+  InternalLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: private-platform-app-lb
+      Scheme: internal
+      Subnets:
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+      Type: application
+      SecurityGroups:
+        - !GetAtt PublicSecurityGroup.GroupId
+
+  # API Gateway
+  PrivateLink:
+    Type: AWS::ApiGatewayV2::VpcLink
+    Properties:
+      Name: api-private-link-to-vpc
+      SubnetIds:
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+      SecurityGroupIds:
+        - !GetAtt PublicSecurityGroup.GroupId
+
+  APIGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: api-to-internal-platform
+      ProtocolType: HTTP
+
   # Env variable replaced by the upload.sh render command
   ClusterShared:
     Type: AWS::CloudFormation::Stack
