@@ -12,8 +12,66 @@ Parameters:
   SubnetIds:
     Description: Available Subnets Ids where cluster networking resources will live
     Type: CommaDelimitedList
+  Role:
+    Type: String
+    Description: Enter the name of an existing IAM Role for the clusters to use
+    AllowedPattern: "^[a-zA-Z0-9+=,.@_/-]+$"
+    ConstraintDescription: Must be a valid IAM Role name.
+  RegionalAPIGatewayId:
+    Type: String
+    Description: ID of the public Regional API Gateway
+  RegionalAPIGatewayRootId:
+    Type: String
+    Description: ID of root resource for the public Regional API Gateway
+
 
 Resources:
+
+  ClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP, HTTPS, and custom HTTP traffic
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: "Name"
+          Value: "platform-pubic-access"
+
+  # Connectivity
+  InternalLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: private-platform-network-lb
+      Scheme: internal
+      Subnets:
+        - !Select [ 0, !Ref SubnetIds]
+        - !Select [ 1, !Ref SubnetIds]
+      Type: network
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !GetAtt ClusterSecurityGroup.GroupId
+
+  ## API Gateway Link
+  InternalLink:
+    Type: AWS::ApiGateway::VpcLink
+    Properties:
+      Name: api-private-link-to-vpc
+      TargetArns:
+        - !Ref InternalLoadBalancer
+
+  # Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
@@ -29,3 +87,106 @@ Resources:
       Configuration:
         ExecuteCommandConfiguration:
           Logging: DEFAULT
+
+  # Tasks
+  TestAPIDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: test-api-task-def
+      ContainerDefinitions:
+        - Name: test-api
+          Image: docker.io/vanapagan/test-rest-api:latest
+          PortMappings:
+            - ContainerPort: 8080
+              HostPort: 8080
+              Protocol: tcp
+          Essential: true
+      NetworkMode: awsvpc
+      Cpu: 1 vCPU
+      Memory: 2 GB
+      RequiresCompatibilities:
+        - EC2
+        - FARGATE
+      TaskRoleArn: !Sub arn:aws:iam::$${q}{AWS::AccountId}:role/$${q}{Role}
+      ExecutionRoleArn: !Sub arn:aws:iam::$${q}{AWS::AccountId}:role/$${q}{Role}
+      Tags:
+        - Key: cluster
+          Value: !Ref ClusterName
+  
+  # Service: test-api
+  ## Target Group
+  TestAPITargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ecs-test-api-service-nlb
+      Port: 8080
+      Protocol: TCP
+      TargetType: ip
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "300"
+
+  ## Listener
+  TestAPIListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TestAPITargetGroup
+      LoadBalancerArn: !Ref InternalLoadBalancer
+      Port: 8080
+      Protocol: TCP
+  
+  ## Service
+  TestAPIService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: test-api-service
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TestAPIDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      LoadBalancers:
+        - ContainerName: test-api
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TestAPITargetGroup
+      HealthCheckGracePeriodSeconds: "20"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref ClusterSecurityGroup
+          Subnets:
+            - !Select [ 0, !Ref SubnetIds]
+            - !Select [ 1, !Ref SubnetIds]
+      PlatformVersion: LATEST
+      DeploymentController:
+        Type: ECS
+    DependsOn:
+      - TestAPIListener
+
+  ## API Resource
+  TestAPIResourceAbout:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RegionalAPIGatewayId
+      ParentId: !Ref RegionalAPIGatewayRootId
+      PathPart: about
+
+  ## API Method
+  TestAPIResouceAboutGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RegionalAPIGatewayId
+      ResourceId: !Ref TestAPIResourceAbout
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: GET
+        Uri: !Sub
+          - "http://$${q}{NLB}:8080/about"
+          - NLB: !GetAtt InternalLoadBalancer.DNSName
+        ConnectionType: VPC_LINK
+        ConnectionId: !Ref InternalLink
