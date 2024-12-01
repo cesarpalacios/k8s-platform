@@ -10,7 +10,6 @@ Parameters:
     Description: "ARN del Control Panel para Route 53 Routing Control"
     Type: String
   
-
 Resources:
 
   RoutingControl:
