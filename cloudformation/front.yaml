@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Infraestructura para Frontend con S3, CloudFront, Cognito, Route 53, WAF y GuardDuty."
+
+Parameters:
+  ApiGatewayEndpoint:
+    Description: "Endpoint del API Gateway para configuraciones externas."
+    Type: String
+  
+  ControlPanelArn:
+    Description: "ARN del Control Panel para Route 53 Routing Control"
+    Type: String
+  
+
+Resources:
+
+  RoutingControl:
+    Type: "AWS::Route53RecoveryControl::RoutingControl"
+    Properties:
+      Name: !Sub "${AWS::StackName}-routingcontrol"
+      ControlPanelArn: !Ref ControlPanelArn
+
+  # S3 Bucket para el Frontend
+  FrontendBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-frontend"
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: "index.html"
+        ErrorDocument: "error.html"
+  
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt FrontendBucket.DomainName
+            Id: "S3FrontendOrigin"
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: "S3FrontendOrigin"
+          ViewerProtocolPolicy: "redirect-to-https"
+          AllowedMethods: ["GET", "HEAD"]
+          CachedMethods: ["GET", "HEAD"]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: "none"
+        Enabled: true
+        DefaultRootObject: "index.html"
+  
+  # Cognito User Pool
+  CognitoUserPool:
+    Type: "AWS::Cognito::UserPool"
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-userpool"
+      AutoVerifiedAttributes: ["email"]
+  
+  CognitoUserPoolClient:
+    Type: "AWS::Cognito::UserPoolClient"
+    Properties:
+      ClientName: "FrontendApp"
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+  
+  # Route 53 Routing Control
+  RoutingControl:
+    Type: "AWS::Route53RecoveryControl::RoutingControl"
+    Properties:
+      Name: !Sub "${AWS::StackName}-routingcontrol"
+      ControlPanelArn: !Ref ControlPanelArn
+  
+  # WAF WebACL
+  WAFWebACL:
+    Type: "AWS::WAFv2::WebACL"
+    Properties:
+      Name: !Sub "${AWS::StackName}-webacl"
+      Scope: "CLOUDFRONT"
+      DefaultAction:
+        Allow: {}
+      Rules: []
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${AWS::StackName}-wafmetrics"
+  
+  # GuardDuty Detector
+  GuardDutyDetector:
+    Type: "AWS::GuardDuty::Detector"
+    Properties:
+      Enable: true
+
+Outputs:
+  CloudFrontURL:
+    Description: "URL del Frontend CloudFront"
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  
+  CognitoPoolId:
+    Description: "ID del Cognito User Pool"
+    Value: !Ref CognitoUserPool
+  
+  CognitoClientId:
+    Description: "ID del Cognito User Pool Client"
+    Value: !Ref CognitoUserPoolClient
